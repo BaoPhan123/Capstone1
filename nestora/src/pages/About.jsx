@@ -9,7 +9,6 @@ const voiNhanVienImg = '/images/AnhCat/voi-nhan-vien.jpg';
 const voiDoiTacImg = '/images/AnhCat/voi-doi-tac.jpg';
 const voiThiTruongImg = '/images/AnhCat/voi-thi-truong.png';
 
-// Dữ liệu sứ mệnh
 const missions = [
     {
         id: 1,
