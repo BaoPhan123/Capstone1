@@ -8,7 +8,6 @@ import { useAuth } from '../context/AuthContext';
 import { htmlToPlainText } from '../utils/text';
 import { toast } from 'sonner';
 
-// Image paths từ public folder
 const bannerSanPhamImg = '/images/AnhCat/banner-san-pham.png';
 const phongKhachImg = '/images/AnhCat/phong-khach.png';
 const phongNguImg = '/images/AnhCat/phong-ngu.png';
