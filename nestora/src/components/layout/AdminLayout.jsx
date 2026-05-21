@@ -151,15 +151,7 @@ const AdminLayout = () => {
                     </div>
 
                     <div className="header-right">
-                        <div className="admin-profile-dropdown">
-                            <div className="admin-avatar">
-                                <img src="/images/AnhCat/logo.png" alt="Admin" />
-                            </div>
-                            <div className="admin-profile-info">
-                                <span className="admin-name">Admin</span>
-                                <span className="admin-role">Quản trị viên</span>
-                            </div>
-                        </div>
+                        {/* Top-right admin profile removed as requested */}
                     </div>
                 </header>
 

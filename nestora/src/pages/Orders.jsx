@@ -12,6 +12,15 @@ const sp1Img = '/images/AnhCat/sp-1.png';
 const sp2Img = '/images/AnhCat/sp-2.png';
 const sp3Img = '/images/AnhCat/sp-3.png';
 
+const getOrderItemImage = (item) => {
+    return getImageUrl(
+        item?.product?.images?.[0]
+        || item?.product?.thumbnail
+        || item?.image
+        || sp1Img
+    );
+};
+
 const OrdersPage = () => {
     const { user } = useAuth();
     const [searchTerm, setSearchTerm] = useState('');
@@ -261,7 +270,7 @@ const OrdersPage = () => {
                                                 <div key={item._id || index} className="flex items-center gap-4 py-3 border-b border-gray-100 last:border-b-0">
                                                     <div className="w-16 h-16 overflow-hidden bg-gray-100 flex-shrink-0">
                                                         <img
-                                                            src={item.product.images?.[0] || "/images/AnhCat/sp-1.png"}
+                                                            src={getOrderItemImage(item)}
                                                             alt={item.name}
                                                             className="w-full h-full object-cover"
                                                         />
@@ -441,7 +450,7 @@ const OrdersPage = () => {
                                         <div key={item._id || index} className="flex items-center gap-4 py-3 border-b border-gray-100">
                                             <div className="w-12 h-12 overflow-hidden bg-gray-100">
                                                 <img
-                                                    src={getImageUrl(item.dish?.thumbnail || item.dish?.images?.[0] || item.image)}
+                                                    src={getOrderItemImage(item)}
                                                     alt={item.dish?.name || item.name}
                                                     className="w-full h-full object-cover"
                                                 />

@@ -10,6 +10,7 @@ import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { toast } from 'sonner';
 import { getImageUrl } from '../lib/utils';
+import { htmlToPlainText } from '../utils/text';
 
 // Image paths từ public folder
 const bannerSanPhamImg = '/images/AnhCat/banner-san-pham.png';
@@ -64,12 +65,11 @@ const ProductDetailPage = () => {
                 setProduct({
                     id: p._id,
                     name: p.name,
-                    desc: p.desc || p.description,
+                    desc: htmlToPlainText(p.desc || p.description),
                     price: p.price,
                     priceDisplay: p.price.toLocaleString('vi-VN'),
                     images: processedImages,
                     category: p.category,
-                    sku: p.sku,
                     material: p.material,
                     dimensions: p.dimensions,
                     color: p.color,
@@ -240,7 +240,11 @@ const ProductDetailPage = () => {
         );
     }
 
+    const isOutOfStock = Number(product.stock) <= 0;
+
     const handleQuantityChange = (action) => {
+        if (!product || Number(product.stock) <= 0) return;
+
         if (action === 'increase' && quantity < product.stock) {
             setQuantity(quantity + 1);
         } else if (action === 'decrease' && quantity > 1) {
@@ -249,7 +253,7 @@ const ProductDetailPage = () => {
     };
 
     const handleAddToCart = async () => {
-        if (!isAuthenticated) {
+        if (!isAuthenticated()) {
             toast.error('Vui lòng đăng nhập để thêm vào giỏ hàng');
             navigate('/login');
             return;
@@ -257,6 +261,16 @@ const ProductDetailPage = () => {
 
         if (!product?.id) {
             toast.error('Không tìm thấy sản phẩm');
+            return;
+        }
+
+        if (Number(product.stock) <= 0) {
+            toast.error('Sản phẩm hiện đã hết hàng');
+            return;
+        }
+
+        if (quantity > Number(product.stock)) {
+            toast.error(`Sản phẩm chỉ còn ${product.stock} trong kho`);
             return;
         }
 
@@ -364,14 +378,11 @@ const ProductDetailPage = () => {
                             <div className="product-meta">
                                 <StarRating rating={5} size={18} />
                                 <span className="reviews">({product.reviews.length} đánh giá)</span>
-                                <span className="sku">SKU: {product.sku}</span>
                             </div>
 
                             <div className="product-price-detail">
                                 <span className="current-price">{product.priceDisplay} VNĐ</span>
                             </div>
-
-                            <p className="product-short-desc">{product.desc}</p>
 
                             <div className="product-specs">
                                 <div className="spec-item">
@@ -395,20 +406,25 @@ const ProductDetailPage = () => {
 
                             <div className="product-actions">
                                 <div className="quantity-selector">
-                                    <button onClick={() => handleQuantityChange('decrease')}>
+                                    <button onClick={() => handleQuantityChange('decrease')} disabled={isOutOfStock || quantity <= 1}>
                                         <Minus size={18} />
                                     </button>
                                     <input type="text" value={quantity} readOnly />
-                                    <button onClick={() => handleQuantityChange('increase')}>
+                                    <button onClick={() => handleQuantityChange('increase')} disabled={isOutOfStock || quantity >= Number(product.stock)}>
                                         <Plus size={18} />
                                     </button>
                                 </div>
                                 <button
                                     className="btn-add-cart"
                                     onClick={handleAddToCart}
-                                    disabled={isAddingToCart || isLoading}
+                                    disabled={isAddingToCart || isLoading || isOutOfStock}
                                 >
-                                    {isAddingToCart ? (
+                                    {isOutOfStock ? (
+                                        <>
+                                            <ShoppingCart size={20} />
+                                            <span>Hết hàng</span>
+                                        </>
+                                    ) : isAddingToCart ? (
                                         <>
                                             <div className="loading-spinner" style={{ width: '20px', height: '20px', borderWidth: '2px' }}></div>
                                             <span>Đang thêm...</span>

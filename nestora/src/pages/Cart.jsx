@@ -6,6 +6,7 @@ import { useCart } from '../context/CartContext';
 import * as cartService from '../services/cartService';
 import { toast } from 'sonner';
 import { getImageUrl } from '../lib/utils';
+import { htmlToPlainText } from '../utils/text';
 
 const CartPage = () => {
     const { user } = useAuth();
@@ -194,7 +195,7 @@ const CartPage = () => {
                                                             {item.name}
                                                         </Link>
                                                         {item.product?.description && (
-                                                            <p className="text-sm text-gray-500 mt-1 line-clamp-2">{item.product.description}</p>
+                                                            <p className="text-sm text-gray-500 mt-1 line-clamp-2">{htmlToPlainText(item.product.description)}</p>
                                                         )}
 
                                                     </div>

@@ -12,12 +12,15 @@ import {
     Grid,
     List,
     Upload,
-    Loader
+    Loader,
+    Download
 } from 'lucide-react';
 import { Editor } from '@tinymce/tinymce-react';
 import productService, { CATEGORIES, CATEGORY_LIST } from '../../services/productService';
 import uploadService from '../../services/uploadService';
 import { getImageUrl } from '../../lib/utils';
+import { exportRowsToExcel } from '../../utils/exportExcel';
+import { htmlToPlainText } from '../../utils/text';
 import { toast } from 'sonner';
 
 // Product Form Modal
@@ -32,7 +35,6 @@ const ProductFormModal = ({ isOpen, onClose, product, onSave }) => {
         description: '',
         images: [],
         thumbnail: '',
-        sku: '',
         material: '',
         dimensions: '',
         color: '',
@@ -47,7 +49,6 @@ const ProductFormModal = ({ isOpen, onClose, product, onSave }) => {
         description: '',
         images: [],
         thumbnail: '',
-        sku: '',
         material: '',
         dimensions: '',
         color: '',
@@ -204,12 +205,11 @@ const ProductFormModal = ({ isOpen, onClose, product, onSave }) => {
             images: imageUrls && imageUrls.length > 0 ? imageUrls : undefined, // Array of URLs or undefined
             category: formData.category,
             description: description || undefined,
-            sku: formData.sku || undefined,
             material: formData.material || undefined,
             dimensions: formData.dimensions || undefined,
             color: formData.color || undefined,
             warranty: formData.warranty || undefined,
-            stock: formData.stock ? Number(formData.stock) : undefined, // Convert to number or undefined
+            stock: formData.stock !== '' && formData.stock !== undefined ? Number(formData.stock) : undefined,
         };
 
         const saveResult = await onSave(updatedFormData);
@@ -287,6 +287,17 @@ const ProductFormModal = ({ isOpen, onClose, product, onSave }) => {
                             />
                         </div>
                         <div className="form-group">
+                            <label>Tồn kho *</label>
+                            <input
+                                type="number"
+                                min="0"
+                                value={formData.stock}
+                                onChange={(e) => setFormData({ ...formData, stock: e.target.value })}
+                                placeholder="Nhập số lượng tồn kho"
+                                required
+                            />
+                        </div>
+                        <div className="form-group">
                             <label>Danh mục *</label>
                             <select
                                 value={formData.category}
@@ -316,15 +327,6 @@ const ProductFormModal = ({ isOpen, onClose, product, onSave }) => {
                                 value={formData.material || ''}
                                 onChange={(e) => setFormData({ ...formData, material: e.target.value })}
                                 placeholder="VD: Gỗ tự nhiên, Vải, Da, Kim loại..."
-                            />
-                        </div>
-                        <div className="form-group">
-                            <label>SKU</label>
-                            <input
-                                type="text"
-                                value={formData.sku || ''}
-                                onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-                                placeholder="Mã sản phẩm (SKU)"
                             />
                         </div>
                         <div className="form-group">
@@ -386,6 +388,7 @@ const ProductFormModal = ({ isOpen, onClose, product, onSave }) => {
                                         'alignright alignjustify | bullist numlist outdent indent | ' +
                                         'removeformat | help',
                                     content_style: 'body { font-family:Helvetica,Arial,sans-serif; font-size:14px }',
+                                    entity_encoding: 'raw',
                                     placeholder: 'Nhập mô tả chi tiết sản phẩm...'
                                 }}
                             />
@@ -488,10 +491,6 @@ const ProductViewModal = ({ isOpen, onClose, product, formatPrice, getStatusLabe
                             <p style={{ marginTop: '0.25rem' }}>{product.stock ?? 0}</p>
                         </div>
                         <div>
-                            <strong>SKU:</strong>
-                            <p style={{ marginTop: '0.25rem' }}>{product.sku || '-'}</p>
-                        </div>
-                        <div>
                             <strong>Chất liệu:</strong>
                             <p style={{ marginTop: '0.25rem' }}>{product.material || '-'}</p>
                         </div>
@@ -534,7 +533,7 @@ const ProductCard = ({ product, viewMode, onEdit, onDelete, onView, formatPrice 
             <div className="product-card-content">
                 <span className="product-card-category">{product.category}</span>
                 <h3 className="product-card-name">{product.name}</h3>
-                <p className="product-card-description">{product.description}</p>
+                <p className="product-card-description">{htmlToPlainText(product.description)}</p>
                 <div className="product-card-price">{formatPrice(product.price)}</div>
                 {/* <div className="product-card-stats">
                     <div className="stat-item">
@@ -592,7 +591,7 @@ const AdminProducts = () => {
                 price: p.price,
                 stock: p.stock,
                 status: p.stock > 0 ? 'active' : 'out_of_stock',
-                description: p.desc || p.description,
+                description: htmlToPlainText(p.desc || p.description),
                 sold: 0,
                 ...p,
                 image: getImageUrl(p.images && p.images[0] ? p.images[0] : p.image),
@@ -728,6 +727,42 @@ const AdminProducts = () => {
         return matchesSearch && matchesCategory && matchesStatus;
     });
 
+    const handleExportProducts = () => {
+        const rows = filteredProducts.map((product, index) => ({
+            ...product,
+            orderNumber: index + 1,
+            categoryLabel: CATEGORIES[product.category] || product.category,
+            statusLabel: getStatusLabel(product.status),
+        }));
+
+        if (rows.length === 0) {
+            toast.error('Không có sản phẩm để xuất Excel');
+            return;
+        }
+
+        exportRowsToExcel({
+            filename: `danh-sach-san-pham-${new Date().toISOString().slice(0, 10)}.xls`,
+            sheetName: 'San pham',
+            columns: [
+                { header: 'STT', value: (row) => row.orderNumber },
+                { header: 'Tên sản phẩm', value: (row) => row.name },
+                { header: 'Danh mục', value: (row) => row.categoryLabel },
+                { header: 'Giá bán', value: (row) => Number(row.price || 0) },
+                { header: 'Tồn kho', value: (row) => Number(row.stock || 0) },
+                { header: 'Trạng thái', value: (row) => row.statusLabel },
+                { header: 'Chất liệu', value: (row) => row.material || '-' },
+                { header: 'Kích thước', value: (row) => row.dimensions || '-' },
+                { header: 'Màu sắc', value: (row) => row.color || '-' },
+                { header: 'Bảo hành', value: (row) => row.warranty || '-' },
+                { header: 'Mô tả ngắn', value: (row) => row.desc || row.description || '-' },
+                { header: 'Ngày tạo', value: (row) => row.createdAt ? new Date(row.createdAt).toLocaleString('vi-VN') : '-' },
+            ],
+            rows,
+        });
+
+        toast.success('Xuất Excel danh sách sản phẩm thành công');
+    };
+
     const itemsPerPage = 9; // 3 cards per row x 3 rows
     const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
     const paginatedProducts = filteredProducts.slice(
@@ -744,6 +779,10 @@ const AdminProducts = () => {
                     <p className="page-subtitle">Quản lý tất cả sản phẩm nội thất trong cửa hàng</p>
                 </div>
                 <div className="page-header-actions">
+                    <button className="btn-secondary" onClick={handleExportProducts} disabled={isLoading}>
+                        <Download size={18} />
+                        Xuất Excel
+                    </button>
                     <button className="btn-primary" onClick={handleAddProduct}>
                         <Plus size={18} />
                         Thêm sản phẩm

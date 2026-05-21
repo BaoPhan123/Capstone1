@@ -6,6 +6,7 @@ import * as cartService from '../services/cartService';
 import orderService from '../services/orderService';
 import { toast } from 'sonner';
 import { getImageUrl } from '../lib/utils';
+import { DISCOUNT_PERCENT, isValidDiscountCode, normalizeDiscountCode } from '../constants/discountCodes';
 
 const Checkout = () => {
     const { user, refreshUser } = useAuth();
@@ -23,6 +24,8 @@ const Checkout = () => {
 
     const [paymentMethod, setPaymentMethod] = useState('zalopay');
     const [notes, setNotes] = useState('');
+    const [couponInput, setCouponInput] = useState('');
+    const [appliedCoupon, setAppliedCoupon] = useState('');
 
     useEffect(() => {
         const bootstrapCheckout = async () => {
@@ -110,7 +113,31 @@ const Checkout = () => {
     };
 
     const subtotal = cart?.totalAmount || 0;
-    const total = subtotal;
+    const discountAmount = appliedCoupon ? Math.round(subtotal * DISCOUNT_PERCENT / 100) : 0;
+    const total = Math.max(0, subtotal - discountAmount);
+
+    const handleApplyCoupon = () => {
+        const normalizedCode = normalizeDiscountCode(couponInput);
+        if (!normalizedCode) {
+            toast.error('Vui lòng nhập mã giảm giá');
+            return;
+        }
+
+        if (!isValidDiscountCode(normalizedCode)) {
+            setAppliedCoupon('');
+            toast.error('Mã giảm giá không hợp lệ');
+            return;
+        }
+
+        setAppliedCoupon(normalizedCode);
+        setCouponInput(normalizedCode);
+        toast.success(`Áp dụng mã giảm ${DISCOUNT_PERCENT}% thành công`);
+    };
+
+    const handleRemoveCoupon = () => {
+        setAppliedCoupon('');
+        setCouponInput('');
+    };
 
     const handleCheckout = async () => {
         if (isProcessingRef.current) return;
@@ -133,7 +160,8 @@ const Checkout = () => {
         const baseCheckoutData = {
             paymentMethod,
             notes,
-            shippingAddress: user.address
+            shippingAddress: user.address,
+            couponCode: appliedCoupon || undefined
         };
 
         const checkoutData = isBuyNowFlow
@@ -302,6 +330,51 @@ const Checkout = () => {
                                     <span>Tạm tính</span>
                                     <span>{formatPrice(subtotal)}</span>
                                 </div>
+
+                                <div className="py-3 border-y border-gray-100">
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        Mã giảm giá
+                                    </label>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={couponInput}
+                                            onChange={(e) => setCouponInput(e.target.value)}
+                                            placeholder="Nhập mã giảm giá"
+                                            className="flex-1 px-3 py-2 border border-gray-200 focus:border-[#bd945f] focus:outline-none text-sm uppercase"
+                                            disabled={Boolean(appliedCoupon)}
+                                        />
+                                        {appliedCoupon ? (
+                                            <button
+                                                type="button"
+                                                onClick={handleRemoveCoupon}
+                                                className="px-4 py-2 bg-gray-100 text-gray-700 hover:bg-gray-200 text-sm font-semibold"
+                                            >
+                                                Bỏ
+                                            </button>
+                                        ) : (
+                                            <button
+                                                type="button"
+                                                onClick={handleApplyCoupon}
+                                                className="px-4 py-2 bg-[#bd945f] text-white hover:bg-[#a67d4a] text-sm font-semibold"
+                                            >
+                                                Áp dụng
+                                            </button>
+                                        )}
+                                    </div>
+                                    {appliedCoupon && (
+                                        <p className="mt-2 text-sm text-green-600">
+                                            Đã áp dụng {appliedCoupon}: giảm {DISCOUNT_PERCENT}%
+                                        </p>
+                                    )}
+                                </div>
+
+                                {discountAmount > 0 && (
+                                    <div className="flex justify-between text-green-600">
+                                        <span>Giảm giá</span>
+                                        <span>-{formatPrice(discountAmount)}</span>
+                                    </div>
+                                )}
 
                                 <div className="border-t border-gray-100 pt-3 flex justify-between items-center text-lg">
                                     <span className="font-semibold">Tổng cộng</span>

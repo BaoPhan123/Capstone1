@@ -5,6 +5,7 @@ import productService, { CATEGORIES } from '../services/productService';
 import userService from '../services/userService';
 import { getImageUrl } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
+import { htmlToPlainText } from '../utils/text';
 import { toast } from 'sonner';
 
 // Image paths từ public folder
@@ -38,26 +39,6 @@ const categories = [
     { id: 6, name: 'Văn phòng', slug: 'van-phong', image: vanPhongImg },
     { id: 7, name: 'Cầu thang', slug: 'cau-thang', image: cauThangImg },
     { id: 8, name: 'Đèn trang trí', slug: 'den-trang-tri', image: denTrangTriImg },
-];
-
-// Products data with category
-const allProducts = [
-    { id: 1, name: 'Giường Châu Âu', desc: 'Size lớn, trắng sữa', price: 8999000, priceDisplay: '8,999,000', image: sp1Img, categoryId: 2 },
-    { id: 2, name: 'Bàn làm việc', desc: 'Size vừa, trắng nâu', price: 3999000, priceDisplay: '3,999,000', image: sp2Img, categoryId: 6 },
-    { id: 3, name: 'Tủ quần áo', desc: '4 ngăn, trắng gỗ', price: 12999000, priceDisplay: '12,999,000', image: sp3Img, categoryId: 2 },
-    { id: 4, name: 'Kệ để đồ', desc: '4 ngăn, trắng gỗ', price: 2499000, priceDisplay: '2,499,000', image: sp4Img, categoryId: 1 },
-    { id: 5, name: 'Giường ngủ', desc: 'Size King, gỗ sồi', price: 15999000, priceDisplay: '15,999,000', image: giuongNguImg, categoryId: 2 },
-    { id: 6, name: 'Tủ quần áo lớn', desc: '6 ngăn, gỗ tự nhiên', price: 18999000, priceDisplay: '18,999,000', image: tuQuanAoImg, categoryId: 2 },
-    { id: 7, name: 'Kệ đầu giường', desc: '2 ngăn, trắng sữa', price: 1999000, priceDisplay: '1,999,000', image: keDauGiuongImg, categoryId: 2 },
-    { id: 8, name: 'Bàn uống nước', desc: 'Gỗ sồi, hiện đại', price: 4999000, priceDisplay: '4,999,000', image: banUongNuocImg, categoryId: 1 },
-    { id: 9, name: 'Ghế sofa', desc: 'Vải cao cấp, êm ái', price: 7999000, priceDisplay: '7,999,000', image: gheImg, categoryId: 1 },
-    { id: 10, name: 'Sofa phòng khách', desc: 'Da thật, sang trọng', price: 25999000, priceDisplay: '25,999,000', image: phongKhachImg, categoryId: 1 },
-    { id: 11, name: 'Bàn ăn gỗ sồi', desc: '6 người, gỗ tự nhiên', price: 12999000, priceDisplay: '12,999,000', image: phongBepImg, categoryId: 3 },
-    { id: 12, name: 'Tủ lavabo', desc: 'Chống nước, hiện đại', price: 5999000, priceDisplay: '5,999,000', image: phongTamImg, categoryId: 4 },
-    { id: 13, name: 'Giường trẻ em', desc: 'An toàn, màu sắc', price: 6999000, priceDisplay: '6,999,000', image: treEmImg, categoryId: 5 },
-    { id: 14, name: 'Bàn học sinh', desc: 'Điều chỉnh chiều cao', price: 2999000, priceDisplay: '2,999,000', image: vanPhongImg, categoryId: 6 },
-    { id: 15, name: 'Đèn chùm pha lê', desc: 'Sang trọng, hiện đại', price: 8999000, priceDisplay: '8,999,000', image: denTrangTriImg, categoryId: 8 },
-    { id: 16, name: 'Lan can cầu thang', desc: 'Inox 304, bền đẹp', price: 15999000, priceDisplay: '15,999,000', image: cauThangImg, categoryId: 7 },
 ];
 
 // Sort options
@@ -104,7 +85,7 @@ const ProductsPage = () => {
                 const formattedProducts = result.data.map(p => ({
                     id: p._id,
                     name: p.name,
-                    desc: p.desc || p.description,
+                    desc: htmlToPlainText(p.desc || p.description),
                     price: p.price,
                     priceDisplay: p.price.toLocaleString('vi-VN'),
                     image: getImageUrl(p.images && p.images[0] ? p.images[0] : p.image),
@@ -336,8 +317,8 @@ const ProductsPage = () => {
                                             {category.name}
                                             <span className="count">
                                                 ({category.id === 0
-                                                    ? allProducts.length
-                                                    : allProducts.filter(p => p.categoryId === category.id).length
+                                                    ? products.length
+                                                    : products.filter(p => p.categoryId === category.id).length
                                                 })
                                             </span>
                                         </button>
@@ -457,7 +438,17 @@ const ProductsPage = () => {
                                 {filteredProducts.map((product) => (
                                     <div key={product.id} className="product-card">
                                         <div className="product-image">
-                                            <img src={product.image} alt={product.name} />
+                                            <img
+                                                src={product.image}
+                                                alt={product.name}
+                                                loading="lazy"
+                                                decoding="async"
+                                                referrerPolicy="no-referrer"
+                                                onError={(e) => {
+                                                    const fallback = '/images/AnhCat/sp-1.png';
+                                                    if (e.currentTarget.src !== fallback) e.currentTarget.src = fallback;
+                                                }}
+                                            />
                                             <div className="product-overlay">
                                                 <Link to={`/products/${product.id}`} className="btn-view">
                                                     Xem chi tiết

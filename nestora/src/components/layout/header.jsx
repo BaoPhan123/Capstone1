@@ -48,7 +48,7 @@ const Header = () => {
         { path: '/products', label: 'Sản phẩm' },
         { path: '/news', label: 'Tin tức' },
         { path: '/partners', label: 'Đối tác' },
-       
+        // { path: '/contact', label: 'Liên hệ' },
     ];
 
     const toggleMobileMenu = () => {

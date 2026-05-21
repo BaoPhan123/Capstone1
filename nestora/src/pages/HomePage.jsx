@@ -17,6 +17,7 @@ import {
 import productService from '../services/productService';
 import newsService from '../services/newsService';
 import { getImageUrl } from '../lib/utils';
+import { htmlToPlainText } from '../utils/text';
 
 // Image paths từ public folder
 const bannerImg = '/images/AnhCat/banner.png';
@@ -76,7 +77,7 @@ const HomePage = () => {
                 const formattedProducts = result.data.slice(0, 8).map(p => ({
                     id: p._id,
                     name: p.name,
-                    desc: p.desc || p.description,
+                    desc: htmlToPlainText(p.desc || p.description),
                     price: p.price.toLocaleString('vi-VN'),
                     image: getImageUrl(p.images && p.images[0] ? p.images[0] : p.image)
                 }));

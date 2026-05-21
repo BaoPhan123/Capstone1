@@ -17,10 +17,12 @@ import {
     Loader,
     Truck,
     Hash,
-    Building2
+    Building2,
+    Download
 } from 'lucide-react';
 import { getImageUrl } from '../../lib/utils';
 import adminOrderService from '../../services/adminOrderService';
+import { exportRowsToExcel } from '../../utils/exportExcel';
 import { toast } from 'sonner';
 
 const STATUS_OPTIONS = [
@@ -504,6 +506,7 @@ const AdminOrders = () => {
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
     const [selectedOrder, setSelectedOrder] = useState(null);
     const [isSavingStatus, setIsSavingStatus] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
 
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -612,6 +615,81 @@ const AdminOrders = () => {
         }
     };
 
+    const buildOrderParams = (overrides = {}) => {
+        const params = { ...overrides };
+
+        if (searchTerm.trim()) {
+            params.q = searchTerm.trim();
+        }
+
+        if (statusFilter) {
+            params.status = statusFilter;
+        }
+
+        Object.assign(params, getDateRangeParams(dateFilter));
+        return params;
+    };
+
+    const handleExportOrders = async () => {
+        setIsExporting(true);
+
+        const exportLimit = Math.max(Number(pagination.total || 0), orders.length, 1000);
+        const result = await adminOrderService.getOrders(buildOrderParams({
+            page: 1,
+            limit: exportLimit,
+        }));
+
+        setIsExporting(false);
+
+        if (!result.success) {
+            toast.error(result.message || 'Không thể xuất Excel danh sách đơn hàng');
+            return;
+        }
+
+        const rows = (result.data || []).map(normalizeOrder).map((order, index) => ({
+            ...order,
+            orderNumber: index + 1,
+            displayId: getOrderDisplayId(order),
+            orderedItems: (order.items || [])
+                .map((item) => `${item.name} x${item.quantity}`)
+                .join(', '),
+        }));
+
+        if (rows.length === 0) {
+            toast.error('Không có đơn hàng để xuất Excel');
+            return;
+        }
+
+        exportRowsToExcel({
+            filename: `danh-sach-don-hang-${new Date().toISOString().slice(0, 10)}.xls`,
+            sheetName: 'Don hang',
+            columns: [
+                { header: 'STT', value: (row) => row.orderNumber },
+                { header: 'Mã đơn', value: (row) => row.displayId },
+                { header: 'Khách hàng', value: (row) => row.customerName },
+                { header: 'Email', value: (row) => row.customerEmail },
+                { header: 'Số điện thoại', value: (row) => row.customerPhone },
+                { header: 'Địa chỉ giao hàng', value: (row) => row.shippingAddress || '-' },
+                { header: 'Sản phẩm', value: (row) => row.orderedItems || '-' },
+                { header: 'Số SP', value: (row) => row.itemsCount },
+                { header: 'Tạm tính', value: (row) => Number(row.subtotal || 0) },
+                { header: 'Phí vận chuyển', value: (row) => Number(row.deliveryFee || 0) },
+                { header: 'Giảm giá', value: (row) => Number(row.discount || 0) },
+                { header: 'Tổng tiền', value: (row) => Number(row.totalAmount || 0) },
+                { header: 'Phương thức thanh toán', value: (row) => row.paymentMethodLabel },
+                { header: 'Trạng thái thanh toán', value: (row) => row.paymentStatusLabel },
+                { header: 'Trạng thái đơn', value: (row) => row.statusLabel },
+                { header: 'Đơn vị vận chuyển', value: (row) => row.shippingProvider || '-' },
+                { header: 'Mã vận chuyển', value: (row) => row.shippingCode || '-' },
+                { header: 'Ngày đặt', value: (row) => row.createdAt ? new Date(row.createdAt).toLocaleString('vi-VN') : '-' },
+                { header: 'Ghi chú', value: (row) => row.notes || '-' },
+            ],
+            rows,
+        });
+
+        toast.success('Xuất Excel danh sách đơn hàng thành công');
+    };
+
     const getStatusIcon = (status) => STATUS_ICONS[status] || Clock;
 
     const paginationButtons = [];
@@ -634,6 +712,12 @@ const AdminOrders = () => {
                 <div className="page-header-content">
                     <h1 className="page-title">Quản lý đơn hàng</h1>
                     <p className="page-subtitle">Dữ liệu đơn hàng được lấy trực tiếp từ cơ sở dữ liệu</p>
+                </div>
+                <div className="page-header-actions">
+                    <button className="btn-secondary" onClick={handleExportOrders} disabled={isLoading || isExporting}>
+                        {isExporting ? <Loader className="spinner" size={18} /> : <Download size={18} />}
+                        {isExporting ? 'Đang xuất...' : 'Xuất Excel'}
+                    </button>
                 </div>
             </div>
 

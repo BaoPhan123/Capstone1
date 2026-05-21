@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import authService from '../services/authService';
+import { axiosAuthClient } from '../lib/axios';
 
 // Create Auth Context
 const AuthContext = createContext(null);
@@ -57,6 +58,7 @@ export const AuthProvider = ({ children }) => {
 
             if (result.success) {
                 setUser(result.user);
+                // User is already saved to localStorage by authService
                 return {
                     success: true,
                     user: result.user,
@@ -77,8 +79,20 @@ export const AuthProvider = ({ children }) => {
 
     // Logout function
     const logout = async () => {
+        const userId = user?._id || user?.id;
+        if (userId) {
+            try {
+                await axiosAuthClient.post('/api/chatbot/reset', { userId });
+            } catch {
+                // Logging out should still clear local session even if chat reset fails.
+            }
+        }
         await authService.logout();
         setUser(null);
+        localStorage.removeItem('nestora_user');
+        localStorage.removeItem('nestora_access_token');
+        localStorage.removeItem('nestora_refresh_token');
+        window.dispatchEvent(new Event('nestora:chat-reset'));
     };
 
     // Check if user has specific role
@@ -168,4 +182,5 @@ export const useAuth = () => {
     return context;
 };
 
+export { AuthContext };
 export default AuthContext;
