@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 
+// Verify authentication
 const auth = (roles = []) => {
     return (req, res, next) => {
         try {
