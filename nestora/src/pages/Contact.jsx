@@ -3,7 +3,7 @@ import { useState } from 'react';
 // Image paths từ public folder
 const bannerLienHeImg = '/images/AnhCat/banner-lien-he.png';
 const lienHeImg1 = '/images/AnhCat/lien-he-img1.png';
-
+//  Contact page
 const ContactPage = () => {
     const [formData, setFormData] = useState({
         name: '',
