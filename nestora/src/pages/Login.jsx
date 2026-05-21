@@ -37,7 +37,7 @@ const LoginPage = () => {
         setIsLoading(false);
 
         if (result.success) {
-            // Check if user has admin role
+          
             if (result.user.roles && result.user.roles.includes('admin')) {
                 navigate('/admin');
             } else {
