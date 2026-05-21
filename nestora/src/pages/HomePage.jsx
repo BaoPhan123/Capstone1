@@ -19,7 +19,6 @@ import newsService from '../services/newsService';
 import { getImageUrl } from '../lib/utils';
 import { htmlToPlainText } from '../utils/text';
 
-// Image paths từ public folder
 const bannerImg = '/images/AnhCat/banner.png';
 const moneyImg = '/images/AnhCat/money.png';
 const productImg = '/images/AnhCat/product.png';
