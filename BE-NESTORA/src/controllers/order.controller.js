@@ -107,7 +107,7 @@ exports.getOrderById = async (req, res) => {
         const { orderId } = req.params;
 
         const order = await Order.findOne({ _id: orderId, user: userId })
-            .populate("items.product", "name thumbnail price");
+            .populate("items.product", "name thumbnail images price");
 
         if (!order) {
             return res.status(404).json({

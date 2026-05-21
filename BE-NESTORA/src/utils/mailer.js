@@ -144,6 +144,50 @@ const sendOTP = async (email, otp) => {
     return transporter.sendMail(mailOptions);
 };
 
+const sendDiscountCode = async (email, code, customerName = "bạn") => {
+    const transporter = createTransporter();
+
+    const mailOptions = {
+        from: `"Nestora Customer Service" <${process.env.MAIL_USER}>`,
+        to: email,
+        subject: "Mã giảm giá 5% cho đơn hàng tiếp theo tại Nestora",
+        html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <style>
+                body { font-family: Arial, sans-serif; background:#f8fafc; margin:0; padding:0; color:#334155; }
+                .container { max-width:600px; margin:40px auto; background:#fff; border-radius:12px; overflow:hidden; box-shadow:0 4px 12px rgba(0,0,0,.08); }
+                .header { background:#2c2e53; padding:28px 20px; text-align:center; }
+                .logo { color:#fff; font-size:28px; font-weight:800; margin:0; }
+                .logo span { color:#bd945f; }
+                .content { padding:36px 30px; text-align:center; line-height:1.6; }
+                .title { font-size:20px; font-weight:700; color:#0f172a; margin-bottom:12px; }
+                .code { display:inline-block; margin:22px 0; padding:16px 24px; border:2px dashed #bd945f; border-radius:8px; color:#bd945f; font-size:28px; font-weight:800; letter-spacing:2px; background:#fbf7f1; }
+                .note { color:#64748b; font-size:14px; }
+                .footer { background:#f8fafc; padding:18px; text-align:center; font-size:12px; color:#94a3b8; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header"><h1 class="logo"><span>N</span>estora</h1></div>
+                <div class="content">
+                    <div class="title">Cảm ơn ${customerName} đã mua hàng tại Nestora</div>
+                    <p>Nestora gửi bạn mã giảm giá <strong>5%</strong> cho lần mua hàng tiếp theo:</p>
+                    <div class="code">${code}</div>
+                    <p class="note">Nhập mã này ở trang thanh toán để được giảm 5% giá trị đơn hàng.</p>
+                </div>
+                <div class="footer">&copy; ${new Date().getFullYear()} Nestora. Nâng tầm không gian sống.</div>
+            </div>
+        </body>
+        </html>`
+    };
+
+    return transporter.sendMail(mailOptions);
+};
+
 module.exports = {
-    sendOTP
+    sendOTP,
+    sendDiscountCode
 };

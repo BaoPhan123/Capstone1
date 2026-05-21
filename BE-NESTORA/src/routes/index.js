@@ -9,7 +9,8 @@ const cartRoutes = require("./cart.routes");
 const uploadRoutes = require("./upload.routes");
 const paymentRoutes = require("./payment.routes");
 const orderRoutes = require("./order.routes");
-// const chatbotRoutes = require("./chatbot.routes");
+const chatbotRoutes = require("./chatbot.routes");
+const mediaRoutes = require("./media.routes");
 
 const router = express.Router();
 
@@ -23,6 +24,7 @@ router.use("/cart", cartRoutes);
 router.use("/upload", uploadRoutes);
 router.use("/payments", paymentRoutes);
 router.use("/orders", orderRoutes);
-// router.use("/chatbot", chatbotRoutes);
+router.use("/chatbot", chatbotRoutes);
+router.use("/media", mediaRoutes);
 
 module.exports = router;

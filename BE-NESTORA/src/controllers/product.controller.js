@@ -56,7 +56,6 @@ async function getAllProducts(req, res) {
                 image: { $arrayElemAt: ['$images', 0] },
                 category: 1,
                 stock: 1,
-                sku: 1,
                 material: 1,
                 dimensions: 1,
                 color: 1,

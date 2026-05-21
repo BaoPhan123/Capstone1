@@ -13,7 +13,6 @@ const createProductSchema = z.object({
     }),
     description: z.string().optional(),
     stock: z.number().int().min(0, "Tồn kho phải >= 0").optional(),
-    sku: z.string().optional(),
     material: z.string().optional(),
     dimensions: z.string().optional(),
     color: z.string().optional(),

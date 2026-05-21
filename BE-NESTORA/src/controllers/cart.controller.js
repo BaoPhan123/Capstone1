@@ -4,7 +4,39 @@ const Order = require("../models/Order");
 const Payment = require("../models/Payment");
 const mongoose = require("mongoose");
 const { config: zaloConfig, computeMac } = require("../utils/zalo");
+const { sendDiscountCode } = require("../utils/mailer");
+const {
+    DISCOUNT_PERCENT,
+    normalizeDiscountCode,
+    isValidDiscountCode,
+    getRandomDiscountCode
+} = require("../constants/discountCodes");
 const https = require("https");
+
+function calculateCouponDiscount(subtotal, couponCode) {
+    const normalizedCode = normalizeDiscountCode(couponCode);
+    if (!normalizedCode) return { discountAmount: 0, discountCode: "" };
+    if (!isValidDiscountCode(normalizedCode)) {
+        const error = new Error("Mã giảm giá không hợp lệ");
+        error.statusCode = 400;
+        throw error;
+    }
+    return {
+        discountAmount: Math.round(Number(subtotal || 0) * DISCOUNT_PERCENT / 100),
+        discountCode: normalizedCode
+    };
+}
+
+async function sendNextOrderDiscountEmail(order) {
+    const email = order?.user?.email;
+    if (!email) return;
+
+    try {
+        await sendDiscountCode(email, getRandomDiscountCode(), order.user?.name || "bạn");
+    } catch (mailError) {
+        console.error("Lỗi gửi mã giảm giá:", mailError);
+    }
+}
 
 exports.getCart = async (req, res) => {
     try {
@@ -23,7 +55,7 @@ exports.getCart = async (req, res) => {
         });
     } catch (error) {
         console.error("Lỗi khi lấy giỏ hàng:", error);
-        return res.status(500).json({
+        return res.status(error.statusCode || 500).json({
             success: false,
             message: "Lỗi máy chủ khi lấy giỏ hàng"
         });
@@ -43,6 +75,13 @@ exports.addToCart = async (req, res) => {
             });
         }
 
+        if (product.stock <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: "Sản phẩm hiện đã hết hàng"
+            });
+        }
+
         let cart = await Cart.findOne({ user: userId });
         if (!cart) {
             cart = new Cart({ user: userId, items: [] });
@@ -53,9 +92,22 @@ exports.addToCart = async (req, res) => {
         );
 
         if (existingItemIndex > -1) {
+            const nextQuantity = cart.items[existingItemIndex].quantity + quantity;
+            if (nextQuantity > product.stock) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Sản phẩm ${product.name} không đủ số lượng (còn ${product.stock})`
+                });
+            }
             cart.items[existingItemIndex].quantity += quantity;
             cart.items[existingItemIndex].price = product.price;
         } else {
+            if (quantity > product.stock) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Sản phẩm ${product.name} không đủ số lượng (còn ${product.stock})`
+                });
+            }
             const image = product.images && product.images.length > 0 ? product.images[0] : "";
             cart.items.push({
                 product: productId,
@@ -77,7 +129,7 @@ exports.addToCart = async (req, res) => {
         });
     } catch (error) {
         console.error("Lỗi khi thêm vào giỏ hàng:", error);
-        return res.status(500).json({
+        return res.status(error.statusCode || 500).json({
             success: false,
             message: "Lỗi máy chủ khi thêm vào giỏ hàng"
         });
@@ -246,7 +298,7 @@ exports.checkout = async (req, res) => {
             notes,
             shippingAddress,
             deliveryFee = 0,
-            discount = 0
+            couponCode
         } = req.body;
 
         const cart = await Cart.findOne({ user: userId }).session(session);
@@ -287,7 +339,8 @@ exports.checkout = async (req, res) => {
 
         const subtotal = cart.totalAmount;
         const tax = 0;
-        const totalAmount = subtotal + deliveryFee - discount + tax;
+        const { discountAmount, discountCode } = calculateCouponDiscount(subtotal, couponCode);
+        const totalAmount = Math.max(0, subtotal + deliveryFee - discountAmount + tax);
 
         const order = await Order.create([{
             user: userId,
@@ -295,7 +348,8 @@ exports.checkout = async (req, res) => {
             subtotal,
             tax,
             deliveryFee,
-            discount,
+            discount: discountAmount,
+            discountCode: discountCode || undefined,
             totalAmount,
             paymentMethod,
             paymentStatus: paymentMethod === "cash" ? "pending" : "pending",
@@ -367,6 +421,7 @@ exports.checkout = async (req, res) => {
                 const result = await postJson(zaloConfig.create_order_endpoint, zaloOrder);
 
                 if (result && result.return_code === 1 && result.order_url) {
+                    await sendNextOrderDiscountEmail(populatedOrder);
                     return res.status(201).json({
                         success: true,
                         message: "Đặt hàng thành công. Vui lòng thanh toán qua ZaloPay",
@@ -386,6 +441,8 @@ exports.checkout = async (req, res) => {
                 console.error("Lỗi gọi ZaloPay:", zaloError);
             }
         }
+
+        await sendNextOrderDiscountEmail(populatedOrder);
 
         return res.status(201).json({
             success: true,
@@ -422,7 +479,7 @@ exports.buyNowCheckout = async (req, res) => {
             notes,
             shippingAddress,
             deliveryFee = 0,
-            discount = 0
+            couponCode
         } = req.body;
 
         const product = await Product.findById(productId).session(session);
@@ -453,7 +510,8 @@ exports.buyNowCheckout = async (req, res) => {
 
         const subtotal = unitPrice * quantity;
         const tax = 0;
-        const totalAmount = subtotal + deliveryFee - discount + tax;
+        const { discountAmount, discountCode } = calculateCouponDiscount(subtotal, couponCode);
+        const totalAmount = Math.max(0, subtotal + deliveryFee - discountAmount + tax);
 
         const order = await Order.create([{
             user: userId,
@@ -461,7 +519,8 @@ exports.buyNowCheckout = async (req, res) => {
             subtotal,
             tax,
             deliveryFee,
-            discount,
+            discount: discountAmount,
+            discountCode: discountCode || undefined,
             totalAmount,
             paymentMethod,
             paymentStatus: "pending",
@@ -528,6 +587,7 @@ exports.buyNowCheckout = async (req, res) => {
                 const result = await postJson(zaloConfig.create_order_endpoint, zaloOrder);
 
                 if (result && result.return_code === 1 && result.order_url) {
+                    await sendNextOrderDiscountEmail(populatedOrder);
                     return res.status(201).json({
                         success: true,
                         message: "Đặt hàng thành công. Vui lòng thanh toán qua ZaloPay",
@@ -547,6 +607,8 @@ exports.buyNowCheckout = async (req, res) => {
                 console.error("Lỗi gọi ZaloPay:", zaloError);
             }
         }
+
+        await sendNextOrderDiscountEmail(populatedOrder);
 
         return res.status(201).json({
             success: true,

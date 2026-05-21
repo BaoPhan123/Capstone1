@@ -12,7 +12,6 @@ const ProductSchema = new mongoose.Schema({
     description: { type: String },
     stock: { type: Number, default: 0, min: 0 },
 
-    sku: { type: String },
     material: { type: String },
     dimensions: { type: String },
     color: { type: String },

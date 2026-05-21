@@ -1,283 +1,235 @@
-const { searchMenuByVector, filterMenuByNutrition, chatCompletion, updateProductEmbedding, updateAllEmbeddings } = require("../services/openai.service");
-const { getOrCreateSession, addMessage, clearSession } = require("../utils/sessionManager");
+const ChatSession = require("../models/ChatSession");
+const Product = require("../models/Product");
+const Order = require("../models/Order");
+const openaiService = require("../services/openai.service");
 
-const TOOLS = [
-  {
-    type: "function",
-    function: {
-      name: "search_menu",
-      description: "Tìm kiếm sản phẩm bằng vector search (semantic). SỬ DỤNG khi: tìm theo loại sản phẩm, đặc điểm, mô tả chung.",
-      parameters: {
-        type: "object",
-        properties: {
-          query: {
-            type: "string",
-            description: "Chuỗi tìm kiếm mô tả sản phẩm (VD: 'đồ gia dụng nhà bếp', 'dụng cụ làm vườn', 'đồ nội thất')"
-          }
-        },
-        required: ["query"]
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "filter_menu",
-      description: "Lọc sản phẩm theo tiêu chí CỤ THỂ về giá. SỬ DỤNG KHI: user hỏi về giá tiền cụ thể.",
-      parameters: {
-        type: "object",
-        properties: {
-          maxCalories: {
-            type: "number",
-            description: "Không áp dụng cho sản phẩm gia dụng"
-          },
-          minProtein: {
-            type: "number",
-            description: "Không áp dụng cho sản phẩm gia dụng"
-          },
-          maxPrice: {
-            type: "number",
-            description: "Giá tối đa tính bằng VNĐ (đồng). Sản phẩm thường từ 50,000 - 5,000,000đ."
-          },
-          category: {
-            type: "string",
-            description: "Loại sản phẩm (VD: 'Nhà bếp', 'Phòng khách', 'Đồ điện')"
-          }
-        },
-        required: []
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "show_products",
-      description: "Hiển thị sản phẩm đã chọn. GỌI sau khi lọc xong.",
-      parameters: {
-        type: "object",
-        properties: {
-          product_ids: {
-            type: "array",
-            items: { type: "string" },
-            description: "Mảng ID của các sản phẩm muốn hiển thị"
-          }
-        },
-        required: ["product_ids"]
-      }
-    }
-  }
-];
+async function getOrCreateSession(userId) {
+	try {
+		let session = await ChatSession.findOne({ user: userId, status: "active" }).sort({ createdAt: -1 });
+		if (!session) {
+			session = new ChatSession({ user: userId, messages: [], status: "active" });
+			await session.save();
+		}
+		return session;
+	} catch (error) {
+		console.error("Lỗi lấy/tạo session:", error);
+		throw error;
+	}
+}
+
+function extractJson(text) {
+	if (!text || typeof text !== "string") return null;
+	const start = text.indexOf("{");
+	const end = text.lastIndexOf("}");
+	if (start === -1 || end === -1 || end <= start) return null;
+	const jsonText = text.slice(start, end + 1);
+	try {
+		return JSON.parse(jsonText);
+	} catch (e) {
+		return null;
+	}
+}
 
 exports.sendMessage = async (req, res) => {
-  try {
-    const { message, sessionId } = req.body;
+	try {
+		const { message, userId, history = [] } = req.body;
+		if (!message || typeof message !== "string" || !message.trim()) {
+			return res.status(400).json({ error: "message phải là chuỗi không rỗng" });
+		}
+		const session = userId ? await getOrCreateSession(userId) : null;
 
-    if (!message || typeof message !== "string") {
-      return res.status(400).json({ error: "message phải là string" });
-    }
+		if (session) {
+			session.messages.push({ role: "user", content: message, metadata: { timestamp: new Date() } });
+			session.lastMessageAt = new Date();
+			await session.save();
+		}
 
-    const sid = sessionId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    const currentMessages = addMessage(sid, "user", message);
-    let iteration = 0;
-    const maxIterations = 5;
-    let allSearchResults = [];
-    let selectedProducts = [];
+		const historyMessages = session
+			? session.messages
+				.slice(-12)
+				.map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.content || "") }))
+			: (Array.isArray(history) ? history : [])
+				.slice(-12)
+				.map(m => ({
+					role: m.role === "assistant" || m.type === "bot" ? "assistant" : "user",
+					content: String(m.content || m.text || "")
+				}))
+				.filter(m => m.content.trim());
 
-    while (iteration < maxIterations) {
-      const completion = await chatCompletion(currentMessages, TOOLS);
-      const responseMessage = completion.choices[0].message;
-      currentMessages.push(responseMessage);
+		const products = await Product.find({})
+			.select("name description category price images stock color material dimensions warranty")
+			.limit(60)
+			.lean();
 
-      if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
-        for (const toolCall of responseMessage.tool_calls) {
-          if (toolCall.function.name === "search_menu") {
-            const args = JSON.parse(toolCall.function.arguments);
-            const searchResults = await searchMenuByVector(args.query);
-            allSearchResults = searchResults;
+		const productsForPrompt = products.map(p => ({
+			id: String(p._id),
+			name: p.name,
+			category: p.category,
+			price: p.price || null,
+			stock: p.stock ?? 0,
+			short: (p.description || "").slice(0, 200),
+			color: p.color || ""
+		}));
 
-            const simplified = searchResults.map(p => ({
-              id: p.id,
-              name: p.name,
-              price: p.price,
-              category: p.category,
-              ingredients: p.ingredients,
-              nutrition: p.nutrition
-            }));
+		const systemPrompt = `
+Bạn là trợ lý bán hàng thân thiện của Nestora.
 
-            currentMessages.push({
-              role: "tool",
-              tool_call_id: toolCall.id,
-              content: JSON.stringify(simplified)
-            });
-          } else if (toolCall.function.name === "filter_menu") {
-            const args = JSON.parse(toolCall.function.arguments);
-            const filterResults = await filterMenuByNutrition(args);
-            allSearchResults = filterResults;
+Phong cách:
+- Nói tiếng Việt tự nhiên, gần gũi, không sáo rỗng.
+- Ưu tiên giúp khách ra quyết định, không ép mua.
+- Trả lời ngắn gọn, thường 2-5 câu.
+- Nếu khách hỏi mơ hồ, vẫn cố gợi ý hướng phù hợp thay vì hỏi lại quá nhiều.
+- Chỉ hỏi tối đa 1 câu nếu thật sự cần thêm thông tin.
+- Có thể nhắc tên 1-3 sản phẩm phù hợp và lý do ngắn gọn.
+- Không bịa thông tin ngoài dữ liệu sản phẩm.
+- Nếu không có sản phẩm phù hợp, nói thật và gợi ý tiêu chí thay thế.
 
-            const simplified = filterResults.map(p => ({
-              id: p.id,
-              name: p.name,
-              price: p.price,
-              nutrition: p.nutrition
-            }));
+Xử lý stock:
+- Kiểm tra trường "stock" của sản phẩm. Nếu stock = 0, sản phẩm đó hết hàng.
+- Vẫn có thể gợi ý sản phẩm hết hàng, nhưng PHẢI nói rõ trong reply rằng "...tuy nhiên hiện đã hết hàng" hoặc tương tự.
+- Nếu gợi ý sản phẩm hết hàng, có thể đề xuất sản phẩm tương tự còn hàng.
 
-            currentMessages.push({
-              role: "tool",
-              tool_call_id: toolCall.id,
-              content: JSON.stringify(simplified)
-            });
-          } else if (toolCall.function.name === "show_products") {
-            const args = JSON.parse(toolCall.function.arguments);
-            const productIds = args.product_ids || [];
-            
-            selectedProducts = allSearchResults.filter(p => productIds.includes(p.id));
+Nhiệm vụ:
+Dựa vào lịch sử chat, tin nhắn mới và danh sách sản phẩm, hãy trả về JSON hợp lệ:
+{
+	"reply": "câu trả lời tự nhiên cho khách",
+	"selectedProductIds": ["id1", "id2"]
+}
 
-            currentMessages.push({
-              role: "tool",
-              tool_call_id: toolCall.id,
-              content: JSON.stringify({ success: true, count: selectedProducts.length })
-            });
-          }
-        }
-        iteration++;
-        continue;
-      }
+Quy tắc chọn sản phẩm:
+- Chọn tối đa 6 sản phẩm.
+- Nếu khách chỉ chào hỏi hoặc hỏi không liên quan sản phẩm, selectedProductIds = [].
+- Nếu khách hỏi gợi ý chung, hãy chọn vài sản phẩm nổi bật/phù hợp nhất (kể cả hết hàng nếu còn khác tốt hơn).
+- Nếu khách hỏi theo tiêu chí, chọn sản phẩm khớp tiêu chí nhất.
+`;
 
-      const productsForFE = selectedProducts.map(p => ({
-        id: p.id,
-        name: p.name,
-        thumbnail: p.thumbnail,
-        price: p.currentPrice,
-        hasDiscount: p.hasDiscount
-      }));
+		let assistantReply = "Mình chưa rõ lắm, bạn mô tả lại giúp mình được không? (ví dụ: màu, phong cách, kích thước, ngân sách)";
+		let selectedProductIds = [];
 
-      return res.json({
-        reply: responseMessage.content,
-        products: productsForFE,
-        sessionId: sid
-      });
-    }
+		const userInstruction = `
+Tin nhắn mới của khách: ${message}
 
-    return res.status(500).json({ 
-      error: "Đã vượt quá số lần gọi tool tối đa" 
-    });
+Danh sách sản phẩm:
+${JSON.stringify(productsForPrompt)}
+`;
 
-  } catch (error) {
-    console.error("Lỗi /api/chatbot/send:", error);
-    res.status(500).json({ 
-      error: error.message || "Lỗi server khi xử lý chat" 
-    });
-  }
+		const messagesForAI = [
+			{ role: "system", content: systemPrompt },
+			...historyMessages,
+			{ role: "user", content: userInstruction }
+		];
+
+		const aiResult = await openaiService.chatCompletion(messagesForAI);
+
+		let aiText = "";
+		try {
+			if (aiResult?.choices && aiResult.choices[0]?.message?.content) aiText = aiResult.choices[0].message.content;
+			else if (aiResult?.choices && aiResult.choices[0]?.text) aiText = aiResult.choices[0].text;
+			else if (typeof aiResult === 'string') aiText = aiResult;
+			else aiText = JSON.stringify(aiResult);
+		} catch (e) {
+			aiText = String(aiResult || "");
+		}
+
+		const parsed = extractJson(aiText);
+
+		if (parsed && typeof parsed.reply === "string") {
+			assistantReply = parsed.reply.trim();
+			selectedProductIds = Array.isArray(parsed.selectedProductIds) ? parsed.selectedProductIds : [];
+		} else {
+			assistantReply = (parsed && parsed.reply) ? String(parsed.reply).slice(0, 2000) : aiText.slice(0, 2000);
+		}
+
+		const productsById = new Map(products.map(p => [String(p._id), p]));
+		const finalSelected = (selectedProductIds || [])
+			.map(id => productsById.get(String(id)))
+			.filter(Boolean)
+			.slice(0, 6);
+
+		if (session) {
+			session.messages.push({
+				role: "assistant",
+				content: assistantReply,
+				metadata: { timestamp: new Date(), productsShown: finalSelected.map(p => String(p._id)) }
+			});
+			session.lastMessageAt = new Date();
+			await session.save();
+		}
+
+		const productsForFE = finalSelected.map(p => ({ id: p._id, name: p.name, price: p.price, category: p.category, image: (p.images || [])[0] || "" }));
+
+		return res.json({ reply: assistantReply, products: productsForFE, sessionId: session?._id || null });
+	} catch (error) {
+		console.error("Lỗi /api/chatbot/send:", error);
+		res.status(500).json({ error: error.message || "Lỗi server khi xử lý chat" });
+	}
 };
 
-exports.clearSession = async (req, res) => {
-  try {
-    const { sessionId } = req.body;
-
-    if (!sessionId) {
-      return res.status(400).json({ error: "Thiếu sessionId" });
-    }
-
-    clearSession(sessionId);
-    res.json({ success: true, message: "Đã xóa session" });
-
-  } catch (error) {
-    console.error("Lỗi /api/chatbot/clear:", error);
-    res.status(500).json({ error: error.message });
-  }
+exports.resetSession = async (req, res) => {
+	try {
+		const { userId } = req.body;
+		if (!userId) return res.status(400).json({ error: "Thiếu userId" });
+		await ChatSession.updateOne({ user: userId, status: "active" }, { status: "archived" });
+		const newSession = new ChatSession({ user: userId, messages: [], status: "active" });
+		await newSession.save();
+		res.json({ success: true, message: "Đã reset session chat", sessionId: newSession._id });
+	} catch (error) {
+		console.error("Lỗi /api/chatbot/reset:", error);
+		res.status(500).json({ error: error.message || "Lỗi server khi reset session" });
+	}
 };
 
-exports.chat = async (req, res) => {
-  try {
-    const { messages } = req.body;
-
-    if (!messages || !Array.isArray(messages)) {
-      return res.status(400).json({ error: "messages phải là một mảng" });
-    }
-
-    let currentMessages = [...messages];
-    let iteration = 0;
-    const maxIterations = 5;
-
-    while (iteration < maxIterations) {
-      const completion = await chatCompletion(currentMessages, TOOLS);
-      const responseMessage = completion.choices[0].message;
-      currentMessages.push(responseMessage);
-
-      if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
-        for (const toolCall of responseMessage.tool_calls) {
-          if (toolCall.function.name === "search_menu") {
-            const args = JSON.parse(toolCall.function.arguments);
-            const searchResults = await searchMenuByVector(args.query);
-
-            currentMessages.push({
-              role: "tool",
-              tool_call_id: toolCall.id,
-              content: JSON.stringify(searchResults, null, 2)
-            });
-          }
-        }
-        iteration++;
-        continue;
-      }
-
-      return res.json({
-        message: responseMessage.content,
-        usage: completion.usage
-      });
-    }
-
-    return res.status(500).json({ 
-      error: "Đã vượt quá số lần gọi tool tối đa" 
-    });
-
-  } catch (error) {
-    console.error("Lỗi /api/chat:", error);
-    res.status(500).json({ 
-      error: error.message || "Lỗi server khi xử lý chat" 
-    });
-  }
+exports.getChatHistory = async (req, res) => {
+	try {
+		const { userId } = req.query;
+		if (!userId) return res.status(400).json({ error: "Thiếu userId" });
+		const session = await ChatSession.findOne({ user: userId, status: "active" }).sort({ createdAt: -1 });
+		if (!session) return res.json({ messages: [], sessionId: null });
+		const messages = session.messages.map(msg => ({ role: msg.role, content: msg.content, metadata: msg.metadata, createdAt: msg.createdAt }));
+		res.json({ messages, sessionId: session._id });
+	} catch (error) {
+		console.error("Lỗi /api/chatbot/history:", error);
+		res.status(500).json({ error: error.message || "Lỗi server khi lấy lịch sử chat" });
+	}
 };
 
-exports.updateEmbedding = async (req, res) => {
-  try {
-    const { productId } = req.body;
-
-    if (!productId) {
-      return res.status(400).json({ error: "Thiếu productId" });
-    }
-
-    const product = await updateProductEmbedding(productId);
-
-    res.json({ 
-      success: true,
-      message: "Đã cập nhật embedding thành công",
-      productId: product._id
-    });
-
-  } catch (error) {
-    console.error("Lỗi /api/update-embedding:", error);
-    res.status(500).json({ 
-      error: error.message || "Lỗi server khi cập nhật embedding" 
-    });
-  }
+exports.checkOrderStatus = async (req, res) => {
+	try {
+		const { userId } = req.body;
+		if (!userId) return res.status(400).json({ error: "Thiếu userId" });
+		const orders = await Order.find({ user: userId }).sort({ createdAt: -1 }).limit(5).select("_id status paymentStatus totalAmount items createdAt shippingCode").populate("items.product", "name price");
+		const formatted = orders.map(o => ({ id: o._id, status: o.status, paymentStatus: o.paymentStatus, totalAmount: o.totalAmount, items: o.items, createdAt: o.createdAt, shippingCode: o.shippingCode }));
+		res.json({ orders: formatted });
+	} catch (error) {
+		console.error("Lỗi /api/chatbot/orders:", error);
+		res.status(500).json({ error: error.message || "Lỗi server khi kiểm tra đơn hàng" });
+	}
 };
 
-exports.updateAllEmbeddings = async (req, res) => {
-  try {
-    const result = await updateAllEmbeddings();
+exports.searchProducts = async (req, res) => {
+	try {
+		const { query, category, maxPrice, minPrice } = req.body;
+		const filter = { stock: { $gt: 0 } };
+		if (query) filter.$or = [{ name: { $regex: query, $options: "i" } }, { description: { $regex: query, $options: "i" } }, { category: { $regex: query, $options: "i" } }];
+		if (category) filter.category = { $regex: category, $options: "i" };
+		if (maxPrice || minPrice) { filter.price = {}; if (minPrice) filter.price.$gte = minPrice; if (maxPrice) filter.price.$lte = maxPrice; }
+		const products = await Product.find(filter).select("-embedding").limit(200).lean();
+		res.json({ products: products.map(p => ({ id: p._id, name: p.name, price: p.price, category: p.category, description: p.description, images: p.images, stock: p.stock })) });
+	} catch (error) {
+		console.error("Lỗi /api/chatbot/search:", error);
+		res.status(500).json({ error: error.message || "Lỗi server khi tìm kiếm sản phẩm" });
+	}
+};
 
-    res.json({
-      success: true,
-      message: `Đã cập nhật ${result.updated} sản phẩm, thất bại ${result.failed} sản phẩm`,
-      ...result
-    });
-
-  } catch (error) {
-    console.error("Lỗi /api/update-all-embeddings:", error);
-    res.status(500).json({ 
-      error: error.message || "Lỗi server khi cập nhật embeddings" 
-    });
-  }
+exports.getProductDetails = async (req, res) => {
+	try {
+		const { productId } = req.params;
+		if (!productId) return res.status(400).json({ error: "Thiếu productId" });
+		const product = await Product.findById(productId).select("-embedding");
+		if (!product) return res.status(404).json({ error: "Không tìm thấy sản phẩm" });
+		res.json({ product: { id: product._id, name: product.name, price: product.price, description: product.description, category: product.category, images: product.images, stock: product.stock, material: product.material, dimensions: product.dimensions, color: product.color, warranty: product.warranty } });
+	} catch (error) {
+		console.error("Lỗi /api/chatbot/product:", error);
+		res.status(500).json({ error: error.message || "Lỗi server khi lấy chi tiết sản phẩm" });
+	}
 };
