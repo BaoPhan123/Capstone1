@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { getImageUrl } from '../lib/utils';
 import { DISCOUNT_PERCENT, isValidDiscountCode, normalizeDiscountCode } from '../constants/discountCodes';
 
+// Checkout function
 const Checkout = () => {
     const { user, refreshUser } = useAuth();
     const navigate = useNavigate();
